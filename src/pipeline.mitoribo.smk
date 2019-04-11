@@ -1,45 +1,79 @@
 #
 import glob
 import pandas as pd
+from pathlib import Path
+import ipdb
+
+def is_nonempty(file):
+  assert Path(file).stat.st_size
+def is_over_size(file,n):
+  assert Path(file).stat.st_size > n
+def newfolder(file,newroot):
+  file = Path(file)
+  assert snakedir in file.parents , str(snakedir) + " doesn't seem to be in parents of " + str(file)
+  return str(Path(*(newroot,)+file.relative_to(snakedir).parts[1:]))
 
 shell.executable("bash")
 shell.prefix("set -e  pipefail;")
 # user set parameter
-TMPDIR = '../tmp'
 
-seqfiles = pd.read_table("read_files.tsv").set_index("samples", drop=False)
-samples = pd.read_table("sample_parameter.tsv").set_index("samples", drop=False)
-
-def is_nonempty(file):
-  assert os.stat(file).st_size
-def is_over_size(file,n):
-  assert os.stat(file).st_size > n
+configfile: "../src/config.yaml"
+config['root'] = Path(config['root'])
 
 
-configfile: "./config.json"
+snakedir = Path(config['root']).resolve() / 'pipeline'
+TMPDIR = Path('../tmp')
+
+
+seqfilesdf = pd.read_csv(config['sample_files']).set_index("sample_id", drop=False)
+sampledf = pd.read_csv(config['sample_parameter']).set_index("sample_id", drop=False)
+
+assert sampledf.sample_id.is_unique
+assert seqfilesdf.file.is_unique
+assert set(seqfilesdf.sample_id) == set(seqfilesdf.sample_id)
+for sample in sampledf.sample_id:
+  for f in seqfilesdf.loc[[sample],'file']:
+    assert snakedir/'input'/sample in Path(f).parents, 'This path should be input/sample/file :'+f
+
+
+samples = list(sampledf['sample_id'].unique())
+fastqs = list(seqfilesdf['file'].unique())
+ribosamples = sampledf.sample_id[sampledf['assay']=='ribo']
+
+
+#local copies of the annotation
+REF = snakedir / Path(config['REF_orig']).with_suffix('.fa').name
+GTF = snakedir / Path(config['GTF_orig']).with_suffix('.gtf').name
+GFF = snakedir / Path(config['GFF_orig']).with_suffix('.gff3').name
+CDSGTF = GTF.with_suffix('.cds.gtf')
+RNAFASTA = GTF.with_suffix('.fa')
+CODINGFASTA=GTF.with_suffix('.coding.fa')
+PROTEINFASTA=GTF.with_suffix('.protein.fa')
+CDSFASTA=GTF.with_suffix('.cds.fa')
+BED=GTF.with_suffix('.bed')
+
 
 rule all:
   input:
-    FASTQS,
-    expand("processed_reads/{sample}/.done", sample = SAMPLES),
-    expand("fastqc/data/{sample}/.done", sample = SAMPLES),
-    expand("star/data/{sample}/.done", sample = SAMPLES),
-    expand("qc/data/{sample}/.done", sample = SAMPLES),
-    ("multiqc/multiqc_report.html"),
-    expand('feature_counts_readrange/data/{sample}/{generegions}/{readrange}/.done', sample=RIBO_TOTAL_DICT.keys(), generegions=GENEREGIONS+TRNAs, readrange=READRANGES),
-    expand("feature_counts/data/{sample}/feature_counts", sample = SAMPLES),
-    expand("feature_counts/all_feature_counts"),
-    # expand("bigwigs/{group}/{strand}/{istrans}.done",group = SAMPLES,strand=strands,istrans=istransvals),
-    # expand("mergedbigwigs/{group}/{strand}/{istrans}.done",group = GROUPS,strand=strands,istrans=istransvals),
-    expand('riboqc/reports/{sample}/riboqcreport.html', sample = ribosamples+groupnames),
-    expand('groupedsatan/{group}.fasta', group = groupnames),
+    seqfilesdf.file.unique(),
+    expand("processed_reads/{sample}/.done", sample = sampledf.sample_id.unique()),
+    # expand("fastqc/data/{sample}/.done", sample = samples),
+    # expand("star/data/{sample}/.done", sample = samples),
+    # expand("qc/data/{sample}/.done", sample = samples),
+    # ("multiqc/multiqc_report.html"),
+    # expand("feature_counts/data/{sample}/feature_counts", sample = samples),
+    # expand("feature_counts/all_feature_counts"),
+    # # expand("bigwigs/{group}/{strand}/{istrans}.done",group = samples,strand=strands,istrans=istransvals),
+    # # expand("mergedbigwigs/{group}/{strand}/{istrans}.done",group = GROUPS,strand=strands,istrans=istransvals),
+    # expand('riboqc/reports/{sample}/riboqcreport.html', sample = ribosamples+groupnames),
+    # expand('groupedsatan/{group}.fasta', group = groupnames),
 
 
 rule link_in_ref:
-  input: REF_orig
+  input: config['REF_orig']
   output: REF
   shell:r"""
-      ln -fs {REF_orig} {REF}
+      ln -fs {config['REF_orig']} {REF}
       """
 
 rule link_in_files:
@@ -57,17 +91,17 @@ rule link_in_files:
 rule cutadapt_reads:
   input: 'preprocessed_reads/{sample}/{fastq}'
   output: 'cutadapt_reads/{sample}/{fastq}'
-  conda: '../envs/cutadapt'
-
-  shell: """    #   set -evx
+  conda: '../envs/cutadapt.yml'
+  params: MINREADLENGTH=config['MINREADLENGTH'],MAXREADLENGTH=config['MAXREADLENGTH'],QUALLIM=config['QUALLIM']
+  shell: r"""    #   set -evx
       set -e
        mkdir -p cutadapt_reads/{wildcards.sample}/
         zcat {input} \
            | cutadapt \
              -a TGGAATTCTCGGGTGCCAAGG \
-            --minimum-length {MINREADLENGTH} \
-            --maximum-length {MAXREADLENGTH} \
-            -q {QUALLIM} - \
+            --minimum-length {params.MINREADLENGTH} \
+            --maximum-length {params.MAXREADLENGTH} \
+            -q {params.QUALLIM} - \
         2> cutadapt_reads/{wildcards.sample}/{wildcards.fastq}.cutadaptstats.txt \
         | gzip  > {output}
 """
@@ -115,8 +149,8 @@ rule trim_reads:
 
 
 rule make_trna_rrna_indices:
-  input: GTF
-  output: touch('filter_reads/tRNA_rRNA_index/tRNA_rRNA_index.done')
+  input: GTF,contaminants="../contaminants/contaminants.fa"
+  output: touch('tRNA_rRNA_index/tRNA_rRNA_index.done')
   run:
     outprefix = output[0].replace('.done','')
     fafile =outprefix+'.fa'
@@ -126,7 +160,7 @@ rule make_trna_rrna_indices:
       #get rRNAs and tRNAs, rename the tRNAs to exons for GenePRed,
       #get the gene type out and stick it front of the transcript id
       #for better names in the fasta
-      cp ../contaminants/contaminants.fa {fafile}
+      cp {input.contaminants} {fafile}
 
        bowtie2-build {fafile} {outprefix} -p {threads}
        
@@ -155,7 +189,7 @@ collate_idxscript = "../exploration/collate_idx.R"
 rule filter_tRNA_rRNA:
     input: 
       'trim_reads/{sample}/{fastq}',
-      'filter_reads/tRNA_rRNA_index/tRNA_rRNA_index.done'  
+      'tRNA_rRNA_index/tRNA_rRNA_index.done'  
       # filter_index    
     output: 'filter_reads/{sample}/{fastq}',
     threads: 8
@@ -202,27 +236,21 @@ rule filter_tRNA_rRNA:
 
     """)
 
+
+
+def get_processed_files(wc): 
+  if wc['sample'] in ribosamples:
+    return [ newfolder(fq,'filter_reads') for fq in seqfilesdf.loc[ [wc['sample']],'file' ] ]
+  else:
+    return list(seqfilesdf['file'][wc['sample']])
 #this rule is the 'signal spliter where we go from sample to indiv fastqs
 rule link_processed_reads:
-  input: 
-    lambda wc: [fastq.replace('input/','filter_reads/') for fastq in SAMPLEFASTQDICT[wc['sample']]]
-  output: touch('processed_reads/{sample,.*(ctrl|uM).*}/.done')
-  shell:r"""
+  input: get_processed_files
+  output: touch('processed_reads/{sample}/.done')
+  run:
+    shell(r"""
         mkdir -p processed_reads/{wildcards.sample}
         ln -rifs $(readlink -f {input}) processed_reads/{wildcards.sample}/
-    """
-
-rule link_total_fastq:
-  input:  
-    lambda wc: [fastq.replace('input/','input/') for fastq in SAMPLEFASTQDICT[wc['sample']]]
-  output: touch('processed_reads/{sample,.*(_L7|_L5).*}/.done')
-  run:
-    sample = wildcards['sample']
-    shell(r"""
-      set -evx
-      mkdir -p processed_reads/{sample}/
-      ln -sf $(readlink -f {input}) $(dirname {output})
-    # ln -rsf $(readlink -f {input}/*) $(dirname {output})
     """)
 
 rule fastqc:
@@ -231,7 +259,7 @@ rule fastqc:
      threads: 4
      log:'fastqc/reports/{sample}/fastqc.log'
      params:
-      reads = lambda wc: [fq.replace('input/','processed_reads/') for fq in SAMPLEFASTQDICT[wc['sample']]],
+      reads = lambda wc: [fq.replace('input/','processed_reads/') for fq in seqfilesdf['file'][wc['sample']]],
       outdir = lambda wc: 'fastqc/data/'+wc.sample+'/'
      shell: '''
           OUTDIR=$(dirname {output[0]})
@@ -244,23 +272,24 @@ rule fastqc:
 ##################
 
 rule gffread:
-  input: REF,GTF_orig
-  output: GTF,CDSGTF,RNAFASTA,CDSFASTA,BED
-  run:
-    shell(r""" 
+  input: REF=config['REF_orig'],GTF=config['GTF_orig'],GFF=config['GFF_orig']
+  output: REF,GTF,CDSGTF,RNAFASTA,CDSFASTA,BED,GFF
+  conda: '../envs/gffread.yml'
+  shell: r""" 
+      ln -s {input.REF} {REF}
       # set -x
       #with filtering output all sequences
-      cat {GTF_orig} \
+      cat {input.GTF} \
       | sed -r  's/((transcript_id|gene_id|protein_id|ID|Parent|exon_id|havana_gene|havana_transcript)\W+\w+)\.[0-9]+/\1/g' \
       > {GTF}
 
-      cat {GFF_orig} \
+      cat {input.GFF} \
       | sed -r  's/((transcript_id|gene_id|protein_id|ID|Parent|exon_id|havana_gene|havana_transcript)\W+\w+)\.[0-9]+/\1/g' \
       > {GFF}
 
 
       #needs gff - output exon sequences
-      cat {GFF_orig} |  grep -P -e'\texon\t|^\#' | gffread - -F -E -g {REF} -W -w {RNAFASTA} -o /dev/null
+      cat {input.GFF} |  grep -P -e'\texon\t|^\#' | gffread - -F -E -g {REF} -W -w {RNAFASTA} -o /dev/null
 
       #Note we are now minus the transcript and exon entries for these
       #now make GTF
@@ -268,20 +297,20 @@ rule gffread:
       #| grep -P -e'\tCDS\t|^\#' 
      #with filtering, output the coding sequences filteirng out the ones that aren't in frame, have a stop codon, are pseudogenes etc.
       
-      cat {GFF_orig}  \
+      cat {input.GFF}  \
         | sed -r  's/((transcript_id|gene_id|protein_id|ID=\w+|Parent)\W+\w+)\.[0-9]+/\1/g' \
         | gffread - -C -V -J --no-pseudo  -F -E -g {REF} \
-        -W -w {ANNOBASE}.coding.transcript.fa -x {CDSFASTA} -y {ANNOBASE}.protein.fa -T \
+        -W -w {CODINGFASTA} -x {CDSFASTA} -y {PROTEINFASTA} -T \
         -o /dev/stdout \
         | awk -v FS="\t" -v OFS="\t" '{{if($3=="CDS"){{$3="exon";print $0}}}}' \
          > {CDSGTF}
 
       #now make bed
-      cat {GTF_orig} | awk '{{print $1,$4,$5,"name",$6,$7}}' > {BED}
-      """)
+      cat {input.GTF} | awk '{{print $1,$4,$5,"name",$6,$7}}' > {BED}
+    """
 
 rule star_index:
-  input: alljuncfile='junctions/all.tsv',REF=REF
+  input: REF=REF,GTF=GTF
   output: touch('starindex/.done')
   threads: 8
   run:
@@ -290,7 +319,7 @@ rule star_index:
       --runThreadN {threads} \
       --runMode genomeGenerate \
       --genomeDir $(dirname {output}) \
-      --sjdbFileChrStartEnd {input.alljuncfile} \
+      --gtf {input.GTF} \
       --genomeFastaFiles {input.REF}
       """)  
 
@@ -319,19 +348,6 @@ def get_fastqops(inputdir,read_pattern,lstring='<( zcat ',rstring=')'):
 
 
     
-rule star_index:
-  input: REF=REF
-  output: touch('starindex/.done')
-  threads: 8
-  run:
-    shell(r"""
-      STAR \
-      --runThreadN {threads} \
-      --runMode genomeGenerate \
-      --genomeDir $(dirname {output}) \
-      --genomeFastaFiles {input.REF}
-      """)  
-
 
 
 rule star:

@@ -6,6 +6,8 @@
 /fast/work/groups/ag_ohler/dharnet_m/Mitochondrialribo/
 
 /fast/work/groups/ag_ohler/dharnet_m/Mitochondrialribo/src/pipeline.mitoribo.smk
+/fast/work/groups/ag_ohler/dharnet_m/Mitochondrialribo/src/read_files.csv
+/fast/work/groups/ag_ohler/dharnet_m/Mitochondrialribo/src/sample_parameter.csv
 
 
 
@@ -15,4 +17,18 @@
 
 Experimenting with new project structure here, more organized. Rsync plugiin with sublime text is an option, working across ssh is not ideal
 
+Email:
 
+I am Eva from Gunter Meister`s lab in Regenburg and I am working on a project concerning an RNA methyltransferase targeting mitochondrial tRNAs. Therefore, we have generated knockout cell lines of this methyltransferase (METTL8) and have performed ribosome profiling experiments with WT and ko lysates enriched for mitochondria. Since we are not familiar with such analyses Gunter contacted Uwe and he kindly agreed to support us. We have uploaded the data on our FTP-server and we have generated the following login:
+
+Server-ID: 132.199.249.61
+Username: OhlerLab
+Passwort: pelacat39
+Port (optional): 21
+
+You will find 9 libraries in total. 3 are WT replicates, and 3 replicates  from a METTL8 ko cell lines (METTL8_ko1_rep1-3). In addition,we have sequenced one library each for three additional, independent METTL8 ko cell lines (METTL8_ko2_rep1, METTL8_ko3_rep1 and METTL8_ko4_rep1). In the attchement you can also find a scheme with the information concerning the generation of the sequencing libraries. Please let me know, if you need further information from our side.
+
+Thanks already in advance for your help!
+
+Best,
+Eva
