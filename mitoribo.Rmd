@@ -1,0 +1,18 @@
+
+#Mitochondrial Riboseq project
+
+###File list
+
+/fast/work/groups/ag_ohler/dharnet_m/Mitochondrialribo/
+
+/fast/work/groups/ag_ohler/dharnet_m/Mitochondrialribo/src/pipeline.mitoribo.smk
+
+
+
+
+
+#Notes
+
+Experimenting with new project structure here, more organized. Rsync plugiin with sublime text is an option, working across ssh is not ideal
+
+
